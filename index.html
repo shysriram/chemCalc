@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Stoichiometry Back‑Calculator</title>
+  <style>
+    :root{--bg:#0f172a;--panel:#111827;--ink:#e5e7eb;--muted:#9ca3af;--accent:#22d3ee;--danger:#ef4444;}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial; background:linear-gradient(180deg,#0b1026,#111827 30%,#0b1026 100%); color:var(--ink);}
+    .wrap{max-width:1100px;margin:32px auto;padding:0 16px}
+    .grid{display:grid;gap:16px;grid-template-columns:1fr 1fr}
+    @media (max-width:980px){.grid{grid-template-columns:1fr}}
+    .card{background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:16px 16px}
+    h1{font-size:clamp(22px,2.5vw,28px);margin:0 0 12px 0}
+    h2{font-size:18px;margin:0 0 8px 0}
+    label{display:block;font-size:13px;color:var(--muted);margin:12px 0 6px}
+    input, select, textarea{width:100%; background:#0b1226; color:var(--ink); border:1px solid rgba(255,255,255,0.12); border-radius:10px; padding:10px 12px; font-size:14px; outline:none}
+    textarea{min-height:72px; resize:vertical}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .btn{display:inline-flex; align-items:center; gap:8px; padding:10px 14px; border-radius:10px; border:1px solid rgba(255,255,255,0.14); background:#0b1226; color:var(--ink); cursor:pointer}
+    .btn.primary{background:var(--accent); color:#06161a; border-color:transparent; font-weight:600}
+    .btn.danger{background:#2a0f12; border-color:#7f1d1d; color:#fecaca}
+    .btn:disabled{opacity:.5; cursor:not-allowed}
+    table{width:100%; border-collapse:collapse; font-size:14px}
+    th,td{padding:10px 8px; border-bottom:1px solid rgba(255,255,255,0.08); text-align:left}
+    th{color:#cbd5e1; font-weight:600; background:rgba(255,255,255,0.04)}
+    .muted{color:var(--muted)}
+    .badge{display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; background:rgba(34,211,238,.15); color:#67e8f9}
+    .error{color:#fecaca; background:#2a0f12; border:1px solid #7f1d1d; padding:10px 12px; border-radius:10px}
+    .footer{color:var(--muted); font-size:12px; margin-top:20px}
+    .flex{display:flex;gap:10px;flex-wrap:wrap}
+    .right{justify-content:flex-end}
+    .k{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px;}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>🧪 Stoichiometry Back‑Calculator (Frontend‑Only)</h1>
+    <p class="muted" style="margin-top:0">Type a <b>balanced reaction</b>, choose a product and amount. The app returns how much of each <b>reactant</b> you need. All math runs in your browser.</p>
+
+    <div class="grid">
+      <div class="card">
+        <h2>1) Reaction & Target</h2>
+        <label>Balanced equation <span class="muted">(e.g., <span class="k">2 H2 + O2 -> 2 H2O</span>)</span></label>
+        <textarea id="eqn" placeholder="2 H2 + O2 -> 2 H2O">2 H2 + O2 -> 2 H2O</textarea>
+        <div class="flex" style="margin-top:10px">
+          <button id="parseBtn" class="btn">Parse equation</button>
+          <button id="exampleBtn" class="btn">Reset to example</button>
+        </div>
+
+        <div id="parseErrors" style="margin-top:10px"></div>
+
+        <div class="row" style="margin-top:14px">
+          <div>
+            <label>Product (from RHS)</label>
+            <select id="productSelect"><option value="">— parse equation first —</option></select>
+          </div>
+          <div>
+            <label>Target amount</label>
+            <div class="row">
+              <input id="targetValue" type="number" step="any" placeholder="100" />
+              <select id="targetUnit">
+                <option value="g">g</option>
+                <option value="mmol">mmol</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:10px">
+          <div>
+            <label>Percent yield (%)</label>
+            <input id="yieldPct" type="number" step="any" value="100" />
+          </div>
+          <div>
+            <label>Notes</label>
+            <div class="muted" style="font-size:12px">Purity & excess can be set per reactant below. Purity defaults to 100%, excess to 0%.</div>
+          </div>
+        </div>
+
+        <div id="rxnMeta" style="margin-top:12px"></div>
+
+        <div class="flex right" style="margin-top:14px">
+          <button id="calcBtn" class="btn primary" disabled>Calculate</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>2) Reactant Purity & Excess (optional)</h2>
+        <div id="reactantOptions" class="muted">Parse an equation to configure per‑reactant options.</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h2>Results</h2>
+      <div id="summary" class="muted">No results yet.</div>
+      <div style="overflow:auto;margin-top:10px">
+        <table id="resultsTable" style="display:none">
+          <thead>
+            <tr>
+              <th>Reactant</th>
+              <th>Coeff</th>
+              <th>MW (g/mol)</th>
+              <th>Moles needed</th>
+              <th>Grams (ideal)</th>
+              <th>Purity (%)</th>
+              <th>Excess (%)</th>
+              <th>Grams (adjusted)</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="flex right" style="margin-top:10px">
+        <button id="downloadCsv" class="btn" disabled>Download CSV</button>
+        <button id="printBtn" class="btn" disabled>Print</button>
+      </div>
+      <div class="footer">Disclaimer: Educational/research use only. Verify all calculations before use in lab/industry.</div>
+    </div>
+  </div>
+
+<script>
+// ---------------- Periodic Table (subset; extend as needed) ----------------
+const A = {
+  H:1.00794, He:4.0026, Li:6.941, Be:9.01218, B:10.811, C:12.011, N:14.0067, O:15.9994, F:18.9984, Ne:20.1797,
+  Na:22.98977, Mg:24.305, Al:26.98154, Si:28.0855, P:30.97376, S:32.065, Cl:35.453, Ar:39.948, K:39.0983, Ca:40.078,
+  Sc:44.9559, Ti:47.867, V:50.9415, Cr:51.9961, Mn:54.938, Fe:55.845, Co:58.933, Ni:58.6934, Cu:63.546, Zn:65.38,
+  Ga:69.723, Ge:72.64, As:74.9216, Se:78.96, Br:79.904, Kr:83.798, Rb:85.4678, Sr:87.62, Ag:107.8682, I:126.90447,
+  Ba:137.327, Pt:195.084, Au:196.96657, Hg:200.59, Pb:207.2, Sn:118.71
+};
+
+// ---------------- Formula -> molar mass (supports nested parentheses) ----------------
+function molarMass(formula){
+  let i = 0;
+  function readInt(){ let n=""; while(i<formula.length && /\d/.test(formula[i])) n+=formula[i++]; return n?parseInt(n,10):1; }
+  function parseGroup(){
+    let mass = 0;
+    while(i<formula.length){
+      const ch = formula[i];
+      if(ch === '('){ i++; const sub = parseGroup(); const mult = readInt(); mass += sub*mult; }
+      else if(ch === ')'){ i++; break; }
+      else if(/[A-Z]/.test(ch)){
+        let el = formula[i++]; if(i<formula.length && /[a-z]/.test(formula[i])) el += formula[i++];
+        const mult = readInt();
+        if(!(el in A)) throw new Error(`Unknown element: ${el}`);
+        mass += A[el]*mult;
+      }else if(ch==='·' || ch==='.'){ // hydration dot → treat as plus/continue
+        i++;
+      }else if(/\s/.test(ch)){
+        i++;
+      }else{
+        throw new Error(`Unexpected char '${ch}' in ${formula}`);
+      }
+    }
+    return mass;
+  }
+  return parseGroup();
+}
+
+// ---------------- "2 H2 + O2 -> 2 H2O" parser ----------------
+function parseEquation(eqn) {
+  const m = eqn.split(/->|=>|⟶/);
+  if (m.length !== 2) throw new Error("Equation must contain a single '->'");
+  const [L, R] = m.map(s => s.trim());
+
+  const parseSide = (side) => side.split('+').map(s => {
+    const t = s.trim();
+    if (!t) return null;
+    const m1 = t.match(/^(\d+)\s*([A-Za-z0-9().·]+)$/);
+    const m2 = t.match(/^([A-Za-z0-9().·]+)$/);
+    if (!m1 && !m2) throw new Error(`Bad token: "${t}"`);
+    const coef = m1 ? parseInt(m1[1], 10) : 1;
+    const formula = (m1 ? m1[2] : m2[1]).trim();
+    const MW = molarMass(formula);
+    return { coef, formula, MW };
+  }).filter(Boolean);
+
+  return {
+    reactants: parseSide(L),
+    products: parseSide(R)
+  };
+}
+
+// ---------------- Core compute ----------------
+function computeReactants(parsed, productFormula, target, opts){
+  const {reactants, products} = parsed;
+  const prod = products.find(p => p.formula === productFormula);
+  if(!prod) throw new Error("Chosen product is not on RHS.");
+  const yieldPct = Number(opts.yieldPct ?? 100) || 100;
+  const nProd = target.unit==='g' ? (target.value / prod.MW) : (target.value/1000);
+  const nProdAtReactor = nProd / (yieldPct/100);
+  const rows = reactants.map(r=>{
+    const ratio = r.coef / prod.coef;
+    const n = nProdAtReactor * ratio;
+    const gramsIdeal = n * r.MW;
+    const purity = Number(opts.purity?.[r.formula] ?? 100);
+    const excess = Number(opts.excess?.[r.formula] ?? 0);
+    const gramsAdj = (gramsIdeal / (purity/100)) * (1 + excess/100);
+    return { formula:r.formula, coef:r.coef, MW:r.MW, n, gramsIdeal, purity, excess, gramsAdj };
+  });
+  return { prod, nProd, nProdAtReactor, yieldPct, rows };
+}
+
+// ---------------- UI wiring ----------------
+const $ = sel => document.querySelector(sel);
+const eqnEl = $('#eqn');
+const parseBtn = $('#parseBtn');
+const exampleBtn = $('#exampleBtn');
+const productSel = $('#productSelect');
+const targetValue = $('#targetValue');
+const targetUnit = $('#targetUnit');
+const yieldPct = $('#yieldPct');
+const calcBtn = $('#calcBtn');
+const parseErrors = $('#parseErrors');
+const rxnMeta = $('#rxnMeta');
+const reactantOptions = $('#reactantOptions');
+const summary = $('#summary');
+const table = $('#resultsTable');
+const tbody = table.querySelector('tbody');
+const downloadCsvBtn = $('#downloadCsv');
+const printBtn = $('#printBtn');
+
+let parsed = null;
+let purityInputs = {}; // by formula
+let excessInputs = {};
+
+function r3(x){
+  if(!isFinite(x)) return '-';
+  const ax = Math.abs(x);
+  if(ax===0) return '0';
+  if(ax>=1000) return x.toFixed(2);
+  if(ax<0.001) return x.toExponential(2);
+  // 3 sig figs
+  const digits = 3 - Math.floor(Math.log10(ax)) - 1;
+  return x.toFixed(Math.max(0,digits));
+}
+
+parseBtn.addEventListener('click', () => {
+  parseErrors.innerHTML = '';
+  productSel.innerHTML = '<option value="">— parsing —</option>';
+  reactantOptions.innerHTML = 'Parsing...';
+  try{
+    parsed = parseEquation(eqnEl.value);
+    // populate product select
+    productSel.innerHTML = '';
+    parsed.products.forEach((p,i)=>{
+      const opt = document.createElement('option');
+      opt.value = p.formula; opt.textContent = p.formula + `  (MW ${r3(p.MW)})`;
+      if(i===0) opt.selected = true;
+      productSel.appendChild(opt);
+    });
+    // describe reaction
+    rxnMeta.innerHTML = `<span class="badge">Parsed</span> Reactants: ${parsed.reactants.map(r=>`${r.coef} ${r.formula}`).join(' + ')} → Products: ${parsed.products.map(p=>`${p.coef} ${p.formula}`).join(' + ')}`;
+    // build per‑reactant options
+    purityInputs = {}; excessInputs = {};
+    const frag = document.createDocumentFragment();
+    parsed.reactants.forEach(r=>{
+      const wrap = document.createElement('div');
+      wrap.className = 'row';
+      wrap.style.marginTop = '8px';
+      wrap.innerHTML = `
+        <div>
+          <label class="muted">Reactant</label>
+          <input value="${r.formula}" disabled />
+        </div>
+        <div>
+          <label>Purity (%)</label>
+          <input type="number" step="any" value="100" data-formula="${r.formula}" class="purity" />
+        </div>
+        <div>
+          <label>Excess (%)</label>
+          <input type="number" step="any" value="0" data-formula="${r.formula}" class="excess" />
+        </div>`;
+      frag.appendChild(wrap);
+    });
+    reactantOptions.innerHTML = '';
+    reactantOptions.appendChild(frag);
+
+    reactantOptions.querySelectorAll('.purity').forEach(inp=>{
+      purityInputs[inp.dataset.formula] = inp;
+    });
+    reactantOptions.querySelectorAll('.excess').forEach(inp=>{
+      excessInputs[inp.dataset.formula] = inp;
+    });
+
+    calcBtn.disabled = false;
+    summary.textContent = 'Ready. Enter target amount and press Calculate.';
+  }catch(err){
+    parsed = null;
+    calcBtn.disabled = true;
+    reactantOptions.innerHTML = 'Parse an equation to configure per‑reactant options.';
+    productSel.innerHTML = '<option value="">— parse equation first —</option>';
+    rxnMeta.innerHTML = '';
+    showError(err.message);
+  }
+});
+
+exampleBtn.addEventListener('click', () => {
+  eqnEl.value = '2 H2 + O2 -> 2 H2O';
+  targetValue.value = '100';
+  targetUnit.value = 'g';
+  yieldPct.value = '90';
+  parseBtn.click();
+});
+
+calcBtn.addEventListener('click', () => {
+  if(!parsed){ showError('Parse an equation first.'); return; }
+  const product = productSel.value;
+  const value = Number(targetValue.value);
+  if(!product) return showError('Choose a product.');
+  if(!isFinite(value) || value<=0) return showError('Enter a valid target amount > 0.');
+  const target = { value, unit: targetUnit.value };
+  const opts = {
+    yieldPct: Number(yieldPct.value)||100,
+    purity: Object.fromEntries(Object.entries(purityInputs).map(([f,el])=>[f, Number(el.value)||100])),
+    excess: Object.fromEntries(Object.entries(excessInputs).map(([f,el])=>[f, Number(el.value)||0]))
+  };
+  try{
+    const out = computeReactants(parsed, product, target, opts);
+    renderResults(out, target);
+  }catch(err){ showError(err.message); }
+});
+
+function renderResults(out, target){
+  // summary
+  const gramsOrMmol = target.unit==='g' ? `${r3(target.value)} g` : `${r3(target.value)} mmol`;
+  const prod = out.prod;
+  summary.innerHTML = `Product <b>${prod.formula}</b> (MW ${r3(prod.MW)} g/mol) → target ${gramsOrMmol}.<br/>`+
+    `Moles at product: <b>${r3(out.nProd)}</b> mol; accounting for yield ${out.yieldPct}% → reactor needs <b>${r3(out.nProdAtReactor)}</b> mol.`;
+
+  // table
+  tbody.innerHTML = '';
+  out.rows.forEach(r=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${r.formula}</td>
+      <td>${r.coef}</td>
+      <td>${r3(r.MW)}</td>
+      <td>${r3(r.n)}</td>
+      <td>${r3(r.gramsIdeal)}</td>
+      <td>${r3(r.purity)}</td>
+      <td>${r3(r.excess)}</td>
+      <td><b>${r3(r.gramsAdj)}</b></td>`;
+    tbody.appendChild(tr);
+  });
+  table.style.display = '';
+  downloadCsvBtn.disabled = false;
+  printBtn.disabled = false;
+
+  // prepare CSV data in memory for download
+  prepareCsv(out, target);
+}
+
+let csvBlobUrl = null;
+function prepareCsv(out, target){
+  const lines = [];
+  lines.push(['Product', out.prod.formula]);
+  lines.push(['Product MW (g/mol)', out.prod.MW]);
+  lines.push(['Target', target.value + ' ' + target.unit]);
+  lines.push(['Target moles (mol)', out.nProd]);
+  lines.push(['Yield (%)', out.yieldPct]);
+  lines.push([]);
+  lines.push(['Reactant','Coeff','MW (g/mol)','Moles needed','Grams (ideal)','Purity (%)','Excess (%)','Grams (adjusted)']);
+  out.rows.forEach(r=>{
+    lines.push([r.formula,r.coef,r.MW,r.n,r.gramsIdeal,r.purity,r.excess,r.gramsAdj]);
+  });
+  const csv = lines.map(row=>row.join(',')).join('\n');
+  if(csvBlobUrl) URL.revokeObjectURL(csvBlobUrl);
+  const blob = new Blob([csv], {type:'text/csv'});
+  csvBlobUrl = URL.createObjectURL(blob);
+  downloadCsvBtn.onclick = () => {
+    const a = document.createElement('a');
+    a.href = csvBlobUrl; a.download = `stoich_${out.prod.formula.replace(/[^A-Za-z0-9]+/g,'_')}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+  };
+}
+
+printBtn.addEventListener('click', ()=>{ window.print(); });
+
+function showError(msg){
+  parseErrors.innerHTML = `<div class="error">${msg}</div>`;
+}
+
+// Auto-parse on load with example
+window.addEventListener('DOMContentLoaded', ()=>{ exampleBtn.click(); });
+</script>
+</body>
+</html>
